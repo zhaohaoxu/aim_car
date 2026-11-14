@@ -1,6 +1,6 @@
 # MSPM0G3507 四轮智能小车
 
-全国大学生电子设计竞赛 E 题（自主循迹小车）的嵌入式工程，主控 TI MSPM0G3507，开发环境 CCS Theia + SysConfig。
+基于 TI MSPM0G3507 的四轮循迹小车嵌入式工程，开发环境 CCS Theia + SysConfig。
 
 ## 硬件平台
 
