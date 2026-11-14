@@ -35,7 +35,8 @@
 
 ```
 aim_car/
-├── empty_mspm0g3507.c/.syscfg   主程序与外设配置
+├── empty_mspm0g3507.c           主程序入口
+├── empty_mspm0g3507.syscfg      SysConfig 外设配置
 ├── motor / trace / key / uart    驱动模块
 ├── bmi088 / ctrl / ui / oled     预留模块（未接入主循环）
 ├── targetConfigs/                XDS110 调试配置
