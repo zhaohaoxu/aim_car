@@ -46,6 +46,8 @@
 | `ui.c` / `ui.h` | OLED 业务显示（未接入主循环） |
 | `oled.c` / `oled.h` | OLED 底层绘图（未实现） |
 | `empty_mspm0g3507.syscfg` | SysConfig 外设配置，生成 `Debug/syscfg/ti_msp_dl_config.[ch]` |
+| `vision/01颜色识别.py` | K230 / CanMV 视觉模块红色色块识别脚本（`find_blobs`） |
+| `docs/images/` | 开发过程截图与参考资料图片 |
 
 ## 引脚分配
 
