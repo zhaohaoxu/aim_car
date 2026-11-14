@@ -1,0 +1,14 @@
+# CCS 编译输出（重新 Build 会自动生成）
+Debug/
+*.o
+*.out
+*.map
+*.d_raw
+
+# CCS / Eclipse 临时文件
+.metadata/
+.launches/
+*.launch
+
+# 编辑器
+.vscode/
