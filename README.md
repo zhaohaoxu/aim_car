@@ -47,7 +47,7 @@
 | `oled.c` / `oled.h` | OLED 底层绘图（未实现） |
 | `empty_mspm0g3507.syscfg` | SysConfig 外设配置，生成 `Debug/syscfg/ti_msp_dl_config.[ch]` |
 | `vision/01颜色识别.py` | K230 / CanMV 视觉模块红色色块识别脚本（`find_blobs`） |
-| `docs/images/` | 开发过程截图与参考资料图片 |
+| `docs/images/` | 原理图、PCB、板卡渲染与算法参考图 |
 
 ## 引脚分配
 
@@ -100,6 +100,17 @@
 ```bash
 <CCS_PATH>/utils/bin/gmake.exe -C Debug all
 ```
+
+## 参考资料（docs/images）
+
+| 文件 | 内容 |
+| --- | --- |
+| `schematic-main.png` | 嘉立创 EDA 原理图（main 图页） |
+| `pcb-layout.webp` | PCB 布线图 |
+| `board-render.png` | LCKFB-TMX-MSPM0G3507 底板 3D 渲染图 |
+| `motor-pin-mapping.png` | 四轮方向脚 / 定时器通道映射表 |
+| `hc4051-channel-table.png` | 74HC4051 通道选择真值表（AD2 / AD1 / AD0） |
+| `differential-drive-radius.png` | 差速转向半径公式与四种转弯模式 |
 
 ## 已知限制
 
