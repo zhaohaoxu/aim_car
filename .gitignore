@@ -12,3 +12,7 @@ Debug/
 
 # 编辑器
 .vscode/
+
+# Python 缓存
+__pycache__/
+*.pyc
