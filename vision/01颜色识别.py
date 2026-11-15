@@ -1,14 +1,27 @@
-import time, os, gc, sys, math
+import time, os, gc, sys, math, struct
 
 from media.sensor import *
 from media.display import *
 from media.media import *
+from machine import UART, FPIOA
 
 DETECT_WIDTH = 640
 DETECT_HEIGHT = 480
 
+# 与 MSPM0 的串口：K230 UART1，TX = IO_3(GPIO3)，RX = IO_4(GPIO4)，115200
+fpioa = FPIOA()
+fpioa.set_function(3, FPIOA.UART1_TXD)
+fpioa.set_function(4, FPIOA.UART1_RXD)
+uart = UART(UART.UART1, 115200, timeout=1000)
 
-thresholds_red = [(0, 0, 0, 255, 255, 255)] # 红色
+
+def send_frame(found, cx, cy, area):
+    """二进制帧：0xAA 0x55 LEN PAYLOAD SUM"""
+    body = struct.pack('<BHHH', found, cx, cy, area)
+    uart.write(b'\xAA\x55' + bytes([len(body)]) + body + bytes([sum(body) & 0xFF]))
+
+
+thresholds_red = [((18, 41, 37, 127, -128, 127))] # 红色
 
 try:
     # 使用默认配置构造一个Sensor对象
@@ -40,8 +53,16 @@ try:
         os.exitpoint()
         img = sensor.snapshot()
 
+        # 找出最大红色色块，画框并发送给 MSPM0
+        best = None
         for blob_red in img.find_blobs(thresholds_red, pixels_threshold=0, area_threshold=900, merge=True):
-                img.draw_rectangle([v for v in blob_red.rect()], color=(255, 0, 0), thickness=20)
+            img.draw_rectangle([v for v in blob_red.rect()], color=(255, 0, 0), thickness=20)
+            if best is None or blob_red.pixels() > best.pixels():
+                best = blob_red
+        if best is None:
+            send_frame(0, 0, 0, 0)
+        else:
+            send_frame(1, best.cx(), best.cy(), min(best.pixels(), 65535))
         # 将结果绘制到屏幕上
         img = img.copy(roi=(196,52,384,320))
         img.compressed_for_ide()
