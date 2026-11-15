@@ -16,3 +16,6 @@ Debug/
 # Python 缓存
 __pycache__/
 *.pyc
+
+# 本地笔记：只在本机修改，不推送到 GitHub
+read/

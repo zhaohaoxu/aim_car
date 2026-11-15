@@ -3,6 +3,7 @@
 #include "uart.h"
 #include "key.h"
 #include "trace.h"
+#include "oled.h"
 
 #define DELAY_1MS       (32000)
 
@@ -26,6 +27,13 @@ int main(void)
     SYSCFG_DL_init();
     motor_init();
     motor_stop_all();
+
+    OLED_init();
+    OLED_fill(0xFF);
+    OLED_refresh();
+    delay_cycles(DELAY_1MS * 1000);
+    OLED_clear();
+    OLED_refresh();
 
     while (1) {
         key_id_t k = key_scanf();
