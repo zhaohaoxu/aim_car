@@ -1,190 +1,162 @@
-/*
- * bmi088.c - BMI088 六轴 IMU 驱动（软件 SPI / bit-bang）
- * 详见 bmi088.h 中的接线与时序说明。
- */
-
 #include "bmi088.h"
+#include "ti_msp_dl_config.h"
 
-/* Mode 3 空闲态：SCLK 高、两个片选都高、MOSI 低 */
-static void imu_idle(void)
-{
-    CSB1_H();
-    CSB2_H();
-    MOSI_L();
-    SCLK_H();
-}
+#define IMU_SCLK_H()   DL_GPIO_setPins(GPIO_IMU_A_PORT, GPIO_IMU_A_SCLK_PIN)
+#define IMU_SCLK_L()   DL_GPIO_clearPins(GPIO_IMU_A_PORT, GPIO_IMU_A_SCLK_PIN)
+#define IMU_MOSI_H()   DL_GPIO_setPins(GPIO_IMU_B_PORT, GPIO_IMU_B_MOSI_PIN)
+#define IMU_MOSI_L()   DL_GPIO_clearPins(GPIO_IMU_B_PORT, GPIO_IMU_B_MOSI_PIN)
+#define IMU_CSB1_H()   DL_GPIO_setPins(GPIO_IMU_B_PORT, GPIO_IMU_B_CSB1_PIN)
+#define IMU_CSB1_L()   DL_GPIO_clearPins(GPIO_IMU_B_PORT, GPIO_IMU_B_CSB1_PIN)
+#define IMU_CSB2_H()   DL_GPIO_setPins(GPIO_IMU_A_PORT, GPIO_IMU_A_CSB2_PIN)
+#define IMU_CSB2_L()   DL_GPIO_clearPins(GPIO_IMU_A_PORT, GPIO_IMU_A_CSB2_PIN)
 
-/* Mode 3 收发一个字节：MSB 先出，上升沿采样 */
-static uint8_t spi_rw(uint8_t tx)
+#define IMU_MISO()     ((DL_GPIO_readPins(GPIO_IMU_B_PORT, GPIO_IMU_B_MISO_PIN) != 0) ? 1 : 0)
+
+/* 8 个周期 @32MHz ≈ 250ns，SCLK 约 800kHz，远低于 BMI088 的 10MHz 上限 */
+#define IMU_SPI_DLY    (8)
+
+#define DELAY_1MS       (32000)
+
+//SCLK: 主时钟，低电平有效
+//tx: 发送的字节，rx: 接收的字节
+static uint8_t imu_spi_xfer(uint8_t tx)
 {
+    uint8_t i;
     uint8_t rx = 0;
 
-    for (uint8_t i = 0; i < 8; i++) {
-        /* SCLK 处于高相，此时改 MOSI（CPHA=1 要求数据在高相改变） */
+    for (i = 0; i < 8; i++) {
+        IMU_SCLK_L();
         if (tx & 0x80) {
-            MOSI_H();
+            IMU_MOSI_H();
         } else {
-            MOSI_L();
+            IMU_MOSI_L();
         }
         tx <<= 1;
         delay_cycles(IMU_SPI_DLY);
-
-        /* 下降沿：从机把 MISO 推出来 */
-        SCLK_L();
+        IMU_SCLK_H();
         delay_cycles(IMU_SPI_DLY);
-
-        /* 低相采样（此时数据已稳定），先左移再填最低位 => MSB 先入 */
-        rx <<= 1;
-        if (MISO_READ()) {
-            rx |= 0x01;
-        }
-        delay_cycles(IMU_SPI_DLY);
-
-        /* 上升沿：从机采样 MOSI，本 bit 结束 */
-        SCLK_H();
-        delay_cycles(IMU_SPI_DLY);
+        rx = (uint8_t)((rx << 1) | IMU_MISO());
     }
-
     return rx;
 }
-
-/* 加速度计写寄存器（CSB1），bit7=0 表示写 */
-static void acc_write(uint8_t reg, uint8_t val)
+/*0x80: 读取寄存器，最高位为 1 表示读取*/
+/* 加速度计读寄存器 */
+static uint8_t acc_read_reg(uint8_t reg)
 {
-    CSB2_H();                 /* 两个片选任何时刻最多一个为低 */
-    CSB1_L();
-    spi_rw(reg & 0x7F);
-    spi_rw(val);
-    CSB1_H();
-}
+    uint8_t val;
+    //低电平有效
+    IMU_CSB1_L();
+    delay_cycles(IMU_SPI_DLY);
+    imu_spi_xfer((uint8_t)(reg | 0x80));
+    imu_spi_xfer(0x00);
+    val = imu_spi_xfer(0x00);
+    IMU_CSB1_H();
 
-/* 加速度计读寄存器（CSB1），地址后必须插 1 字节 dummy */
-static void acc_read(uint8_t reg, uint8_t *buf, uint8_t len)
+    return val;
+}
+/* 陀螺仪读寄存器 */
+static uint8_t gyro_read_reg(uint8_t reg)
 {
-    CSB2_H();
-    CSB1_L();
-    spi_rw(reg | 0x80);       /* bit7=1 表示读 */
-    spi_rw(0x00);             /* 加速度计专属：1 字节 dummy */
-    for (uint8_t i = 0; i < len; i++) {
-        buf[i] = spi_rw(0x00);
-    }
-    CSB1_H();
-}
+    uint8_t val;
+    //低电平有效
+    IMU_CSB2_L();
+    delay_cycles(IMU_SPI_DLY);
+    imu_spi_xfer((uint8_t)(reg | 0x80));
+    val = imu_spi_xfer(0x00);
+    IMU_CSB2_H();
 
-/* 陀螺仪写寄存器（CSB2），bit7=0 表示写 */
-static void gyro_write(uint8_t reg, uint8_t val)
-{
-    CSB1_H();
-    CSB2_L();
-    spi_rw(reg & 0x7F);
-    spi_rw(val);
-    CSB2_H();
+    return val;
 }
-
-/* 陀螺仪读寄存器（CSB2），地址后直接吐数据，无 dummy */
-static void gyro_read(uint8_t reg, uint8_t *buf, uint8_t len)
-{
-    CSB1_H();
-    CSB2_L();
-    spi_rw(reg | 0x80);
-    for (uint8_t i = 0; i < len; i++) {
-        buf[i] = spi_rw(0x00);
-    }
-    CSB2_H();
-}
-
-void bmi088_begin(void)
-{
-    imu_idle();
-}
-
-uint8_t bmi088_loopback(uint8_t tx)
-{
-    return spi_rw(tx);
-}
-
+/* 读加速度计 ID，正常返回 0x1E */
 uint8_t bmi088_read_acc_id(void)
 {
-    uint8_t id = 0;
-
-    acc_read(0x00, &id, 1);   /* 第一次丢弃：靠 CSB1 上升沿完成 I2C -> SPI 切换 */
-    acc_read(0x00, &id, 1);   /* 第二次才是真正的 CHIP_ID，期望 0x1E */
-
-    return id;
+    acc_read_reg(0x00);        
+    return acc_read_reg(0x00);
 }
-
+/* 读陀螺仪 ID，正常返回 0x0F */
 uint8_t bmi088_read_gyro_id(void)
 {
-    uint8_t id = 0;
-
-    gyro_read(0x00, &id, 1);  /* 第一次丢弃：靠 CSB2 上升沿完成 I2C -> SPI 切换 */
-    gyro_read(0x00, &id, 1);  /* 第二次才是真正的 GYRO_CHIP_ID，期望 0x0F */
-
-    return id;
+    return gyro_read_reg(0x00);
+}
+/*0x7F: 寄存器地址，最高位为 0 表示写入*/
+/* 陀螺仪写寄存器 */
+static void gyro_write_reg(uint8_t reg, uint8_t val)
+{
+    IMU_CSB2_L();
+    delay_cycles(IMU_SPI_DLY);
+    imu_spi_xfer((uint8_t)(reg & 0x7F));
+    imu_spi_xfer(val);
+    IMU_CSB2_H();
+    delay_cycles(IMU_SPI_DLY);
 }
 
-/* ---------- 陀螺仪数据 ---------- */
+/* 连续读多个寄存器，陀螺仪地址会自动加一 */
+static void gyro_read_burst(uint8_t reg, uint8_t *buf, uint8_t len)
+{
+    uint8_t i;
 
-#define GYRO_REG_RANGE      (0x0F)
-#define GYRO_REG_BANDWIDTH  (0x10)
-#define GYRO_REG_X_L        (0x02)
-
-#define GYRO_LSB_PER_DPS    (65.536f)   /* ±500°/s 量程 */
-#define YAW_SCALE           (1.08f)     /* 实测修正：手转一圈读数偏低约 8% */
-
-static int16_t gz_bias = 0;
+    IMU_CSB2_L();
+    delay_cycles(IMU_SPI_DLY);
+    imu_spi_xfer((uint8_t)(reg | 0x80));
+    for (i = 0; i < len; i++) {
+        buf[i] = imu_spi_xfer(0x00);
+    }
+    IMU_CSB2_H();
+}
 
 void bmi088_init_gyro(void)
 {
-    uint8_t tmp;
+    gyro_write_reg(0x14, 0xB6);        /* 软复位，清掉上电残留的配置 */
+    delay_cycles(DELAY_1MS * 30);      /* 手册要求复位后至少等 30ms */
 
-    gyro_read(0x00, &tmp, 1);              /* 丢弃：靠 CSB 上升沿切到 SPI 模式 */
-    gyro_write(GYRO_REG_RANGE,     0x02);  /* ±500 °/s */
-    gyro_write(GYRO_REG_BANDWIDTH, 0x02);  /* 1000Hz ODR / 116Hz 带宽 */
-    delay_cycles(32000 * 10);              /* 等 10ms 让陀螺仪稳定 */
+    /* 0x0F 高 4 位 ODR/带宽 = 0x2 -> 400Hz / 116Hz
+     *      低 3 位量程     = 0x2 -> ±500°/s */
+    gyro_write_reg(0x0F, 0x22);
+    delay_cycles(DELAY_1MS * 5);
 }
 
-void bmi088_read_gyro(int16_t *gx, int16_t *gy, int16_t *gz)
+void bmi088_read_gyro_raw(int16_t *gx, int16_t *gy, int16_t *gz)
 {
     uint8_t b[6];
 
-    gyro_read(GYRO_REG_X_L, b, 6);         /* 连续 6 字节，低字节在前 */
+    gyro_read_burst(0x02, b, 6);       /* 0x02~0x07 依次为 GX GY GZ，低字节在前 */
 
     *gx = (int16_t)(((uint16_t)b[1] << 8) | b[0]);
     *gy = (int16_t)(((uint16_t)b[3] << 8) | b[2]);
     *gz = (int16_t)(((uint16_t)b[5] << 8) | b[4]);
 }
 
+static int32_t gyro_bias[3];
+
 void bmi088_calib_gyro(uint16_t samples)
 {
-    int32_t sum = 0;
-    int16_t gx, gy, gz;
+    int32_t sx = 0, sy = 0, sz = 0;
+    int16_t x, y, z;
+    uint16_t i;
 
-    if (samples == 0) { samples = 1; }
-
-    for (uint16_t i = 0; i < samples; i++) {
-        bmi088_read_gyro(&gx, &gy, &gz);
-        sum += gz;
-        delay_cycles(32000 * 2);           /* 2ms 采一次 */
+    if (samples == 0) {
+        samples = 200;
     }
 
-    gz_bias = (int16_t)(sum / (int32_t)samples);
-}
+    for (i = 0; i < samples; i++) {
+        bmi088_read_gyro_raw(&x, &y, &z);
+        sx += x;
+        sy += y;
+        sz += z;
+        delay_cycles(DELAY_1MS * 2);
+    }
 
-uint8_t bmi088_read_gyro_reg(uint8_t reg)
-{
-    uint8_t v = 0;
-
-    gyro_read(reg, &v, 1);
-
-    return v;
+    gyro_bias[0] = sx / (int32_t)samples;
+    gyro_bias[1] = sy / (int32_t)samples;
+    gyro_bias[2] = sz / (int32_t)samples;
 }
 
 float bmi088_gyro_z_dps(void)
 {
-    int16_t gx, gy, gz;
+    int16_t x, y, z;
 
-    bmi088_read_gyro(&gx, &gy, &gz);
+    bmi088_read_gyro_raw(&x, &y, &z);
 
-    return ((float)(gz - gz_bias)) / GYRO_LSB_PER_DPS * YAW_SCALE;
+    /* ±500°/s 时 1°/s = 32768 / 500 = 65.536 LSB */
+    return (float)(z - gyro_bias[2]) / 65.536f;
 }

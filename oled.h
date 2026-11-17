@@ -16,4 +16,8 @@ void OLED_clear(void);
 void OLED_fill(uint8_t pattern);
 void OLED_refresh(void);
 
+/* 5x7 英文点阵，只写到显存，需要 OLED_refresh() 才会上屏 */
+void OLED_show_char(uint8_t x, uint8_t page, char ch);
+void OLED_show_string(uint8_t x, uint8_t page, const char *str);
+
 #endif
