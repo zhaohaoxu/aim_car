@@ -1,4 +1,4 @@
-import time, os, gc, sys, math, struct
+import time, os, gc, struct
 
 from media.sensor import *
 from media.display import *
@@ -8,20 +8,33 @@ from machine import UART, FPIOA
 DETECT_WIDTH = 640
 DETECT_HEIGHT = 480
 
-# 与 MSPM0 的串口：K230 UART1，TX = IO_3(GPIO3)，RX = IO_4(GPIO4)，115200
-fpioa = FPIOA()
-fpioa.set_function(3, FPIOA.UART1_TXD)
-fpioa.set_function(4, FPIOA.UART1_RXD)
-uart = UART(UART.UART1, 115200, timeout=1000)
+#预览窗口
+USE_IDE_DISPLAY = True
 
+#K230 UART1，TX = IO_3(GPIO3)，RX = IO_4(GPIO4)，115200
+uart = None
+try:
+    fpioa = FPIOA()
+    fpioa.set_function(3, FPIOA.UART1_TXD)
+    fpioa.set_function(4, FPIOA.UART1_RXD)
+    uart = UART(UART.UART1, 115200, timeout=1000)
+except Exception:
+    pass
 
+# 发送一帧数据
 def send_frame(found, cx, cy, area):
-    """二进制帧：0xAA 0x55 LEN PAYLOAD SUM"""
-    body = struct.pack('<BHHH', found, cx, cy, area)
-    uart.write(b'\xAA\x55' + bytes([len(body)]) + body + bytes([sum(body) & 0xFF]))
+    if uart is None:
+        return
+    body = struct.pack('<BHHH', found, cx, cy, area)#
+    n    = len(body)#长度
+    chk  = (n + sum(body)) & 0xFF#校验
+    uart.write(b'\xAA\x55' + bytes([n]) + body + bytes([chk]))#发送
 
+# 阈值
+thresholds_red = [((0, 70, 30, 127, -128, 127))] # 红色
 
-thresholds_red = [((18, 41, 37, 127, -128, 127))] # 红色
+sensor = None
+display = False
 
 try:
     # 使用默认配置构造一个Sensor对象
@@ -38,7 +51,14 @@ try:
     sensor.set_pixformat(Sensor.RGB565)
 
     # 使用 IDE 作为输出
-    Display.init(Display.VIRT, width = DETECT_WIDTH, height = DETECT_HEIGHT, fps = 100)
+    if USE_IDE_DISPLAY:
+        try:
+            # 初始化显示
+            Display.init(Display.VIRT, width = 384, height = 320, fps = 60)
+            display = True
+        except Exception:
+            pass
+
     # 初始化媒体管理器
     MediaManager.init()
     # sensor开始运行
@@ -55,7 +75,7 @@ try:
 
         # 找出最大红色色块，画框并发送给 MSPM0
         best = None
-        for blob_red in img.find_blobs(thresholds_red, pixels_threshold=0, area_threshold=900, merge=True):
+        for blob_red in img.find_blobs(thresholds_red, pixels_threshold=900, area_threshold=0, merge=True):
             img.draw_rectangle([v for v in blob_red.rect()], color=(255, 0, 0), thickness=20)
             if best is None or blob_red.pixels() > best.pixels():
                 best = blob_red
@@ -64,12 +84,15 @@ try:
         else:
             send_frame(1, best.cx(), best.cy(), min(best.pixels(), 65535))
         # 将结果绘制到屏幕上
-        img = img.copy(roi=(196,52,384,320))
-        img.compressed_for_ide()
-        Display.show_image(img)
+        if display:
+            img = img.copy(roi=(196,52,384,320))
+            img.compressed_for_ide()
+            Display.show_image(img)
         gc.collect()
 
-        print(fps.fps())
+        # 离线运行时没有终端，打印会拖慢主循环，仅在 IDE 调试时输出
+        if display:
+            print(fps.fps())
 except KeyboardInterrupt as e:
     print(f"user stop")
 except BaseException as e:
@@ -79,7 +102,8 @@ finally:
     if isinstance(sensor, Sensor):
         sensor.stop()
     # 销毁display
-    Display.deinit()
+    if display:
+        Display.deinit()
     # 休眠
     os.exitpoint(os.EXITPOINT_ENABLE_SLEEP)
     time.sleep_ms(100)

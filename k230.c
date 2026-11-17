@@ -11,11 +11,11 @@ void k230_init(void)
     rx_head = 0;
     rx_tail = 0;
 
-    NVIC_ClearPendingIRQ(UART_VISION_INST_INT_IRQN);
-    NVIC_EnableIRQ(UART_VISION_INST_INT_IRQN);
+    NVIC_ClearPendingIRQ(UART_VISION_INST_INT_IRQN);// 清除中断
+    NVIC_EnableIRQ(UART_VISION_INST_INT_IRQN);// 使能中断
 }
 
-/* UART0 接收中断：把硬件 FIFO 里的字节全部搬进环形缓冲 */
+/* 中断函数 */
 void UART_VISION_INST_IRQHandler(void)
 {
     switch (DL_UART_Main_getPendingInterrupt(UART_VISION_INST)) {

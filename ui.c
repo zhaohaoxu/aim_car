@@ -1,6 +1,5 @@
 #include "ui.h"
 #include "oled.h"
-#include "ctrl.h"
 
 /* 有符号整数转字符串，buf 至少 8 字节 */
 static void i16_to_str(int16_t v, char *buf)
