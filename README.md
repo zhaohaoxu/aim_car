@@ -40,7 +40,7 @@ flowchart LR
 
 ## 复刻指南
 
-- 想从零做一台：`docs/tutorial/` 分步教程（编写中）
+- 想从零做一台：从 [00 环境搭建](docs/tutorial/00-environment.md) 开始的分步教程
 - 只关心硬件接线：见下方「硬件平台」与「引脚配置」
 - 只关心协议：见「通信协议（K230 → MSPM0）」
 
