@@ -3,8 +3,8 @@
 #define K230_RX_SIZE    (256)       /* 必须是 2 的幂，便于取模 */
 
 static volatile uint8_t  rx_buf[K230_RX_SIZE];
-static volatile uint16_t rx_head;   /* 中断写入位置 */
-static volatile uint16_t rx_tail;   /* 主循环读取位置 */
+static volatile uint16_t rx_head;   /* 写入位置 */
+static volatile uint16_t rx_tail;   /* 读取位置 */
 
 void k230_init(void)
 {
@@ -21,7 +21,9 @@ void UART_VISION_INST_IRQHandler(void)
     switch (DL_UART_Main_getPendingInterrupt(UART_VISION_INST)) {
     case DL_UART_MAIN_IIDX_RX:
         while (!DL_UART_Main_isRXFIFOEmpty(UART_VISION_INST)) {
+            //c接收k230发送字节
             uint8_t  c    = DL_UART_Main_receiveData(UART_VISION_INST);
+            // 计算下一个字节写入位置
             uint16_t next = (uint16_t)((rx_head + 1) % K230_RX_SIZE);
 
             if (next != rx_tail) {      /* 缓冲满则丢弃新数据 */
@@ -35,30 +37,20 @@ void UART_VISION_INST_IRQHandler(void)
         break;
     }
 }
-
 static int ring_pop(uint8_t *c)
 {
+    // 读取完毕
     if (rx_tail == rx_head) {
         return 0;
     }
+    // 读取字节
     *c      = rx_buf[rx_tail];
     rx_tail = (uint16_t)((rx_tail + 1) % K230_RX_SIZE);
     return 1;
 }
-
-int k230_get_byte(void)
-{
-    uint8_t c;
-
-    if (ring_pop(&c)) {
-        return (int)c;
-    }
-    return -1;
-}
-
 uint8_t k230_read_frame(uint8_t *payload, uint8_t *len)
 {
-    static uint8_t state;       /* 0=找帧头1 1=找帧头2 2=读长度 3=读负载 */
+    static uint8_t state = 0;    /* 默认状态*/
     static uint8_t idx;         /* 已收到负载字节数 */
     static uint8_t plen;        /* 本帧负载长度 */
     static uint8_t sum;         /* 累加和 */
@@ -67,10 +59,12 @@ uint8_t k230_read_frame(uint8_t *payload, uint8_t *len)
     while (ring_pop(&c)) {
         switch (state) {
         case 0:
+            //K230_FRAME_HEAD0 0xAA
             if (c == K230_FRAME_HEAD0) { state = 1; }
             break;
 
         case 1:
+            //K230_FRAME_HEAD1 0x55
             if (c == K230_FRAME_HEAD1) {
                 state = 2;
             } else {
@@ -79,12 +73,13 @@ uint8_t k230_read_frame(uint8_t *payload, uint8_t *len)
             break;
 
         case 2:
-            if (c > K230_PAYLOAD_MAX) {   /* 长度非法，重新找帧头 */
+            //K230_PAYLOAD_MAX 32
+            if (c > K230_PAYLOAD_MAX) {
                 state = 0;
             } else {
-                plen  = c;
-                idx   = 0;
-                sum   = c;
+                plen  = c;//长度7
+                idx   = 0;//字节
+                sum   = c;//7
                 state = 3;
             }
             break;
@@ -109,16 +104,4 @@ uint8_t k230_read_frame(uint8_t *payload, uint8_t *len)
     }
 
     return 0;
-}
-
-void k230_send_char(char c)
-{
-    DL_UART_Main_transmitDataBlocking(UART_VISION_INST, (uint8_t)c);
-}
-
-void k230_send_string(const char *s)
-{
-    while (*s != '\0') {
-        k230_send_char(*s++);
-    }
 }
